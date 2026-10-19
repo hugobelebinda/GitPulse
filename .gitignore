@@ -4,3 +4,7 @@
 *.iml
 .DS_Store
 data/
+target/
+__pycache__/
+*.py[cod]
+.venv/
