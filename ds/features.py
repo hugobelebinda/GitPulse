@@ -47,12 +47,18 @@ def add_features(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def rising_table(frame: pd.DataFrame, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Rank topics by latest available WoW growth (per-topic last day, not global max only)."""
     featured = add_features(frame)
     if featured.empty:
         return featured
-    if as_of is None:
-        as_of = featured["day"].max()
-    latest = featured[featured["day"] == as_of].copy()
+    if as_of is not None:
+        featured = featured[featured["day"] <= as_of]
+    latest = (
+        featured.sort_values("day")
+        .groupby("topic", as_index=False)
+        .tail(1)
+        .copy()
+    )
     latest = latest.sort_values("wow_growth", ascending=False).reset_index(drop=True)
     latest["rank"] = latest.index + 1
     latest["momentum"] = latest["wow_growth"].fillna(0.0)

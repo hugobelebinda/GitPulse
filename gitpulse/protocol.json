@@ -3,7 +3,7 @@
   "question": "Which engineering topics are rising on public GitHub, and can a simple model forecast next-day star activity better than a seasonal naive baseline?",
   "unit": "one topic on one UTC day",
   "signals": ["stars (WatchEvent)", "pushes (PushEvent)", "pull_requests (PullRequestEvent)", "issues (IssuesEvent)"],
-  "topics": 30,
+  "topics": 50,
   "train_test": "≈6 months of daily facts; time-ordered split = first ~5 months train, last 30 days (1 month) test; test predictions scored against real held-out stars; never used to pick hyperparameters after the fact in v1",
   "baseline": "same weekday last week (seasonal naive) on stars",
   "model": "scikit-learn GradientBoostingRegressor on log1p(stars) with lag/rolling features; per-topic models for high-volume topics; hybrid selector keeps model or naive per topic by holdout MAE",

@@ -3,6 +3,9 @@
 Each topic matches public GitHub events by exact seed repos and/or
 case-insensitive substrings in repo_name. Patterns stay intentional and
 narrow so daily aggregates stay interpretable.
+
+The set aims at ~50 high-visibility stacks on public GitHub (languages,
+frameworks, cloud, data/AI, platforms).
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ TOPICS: tuple[Topic, ...] = (
     Topic(
         "python",
         "Python",
-        ("/python", "cpython", "django", "fastapi", "flask", "pytorch", "pandas"),
+        ("/python", "cpython", "django", "fastapi", "flask", "pandas"),
         ("python/cpython", "pallets/flask", "encode/httpx", "tiangolo/fastapi"),
     ),
     Topic(
@@ -34,8 +37,8 @@ TOPICS: tuple[Topic, ...] = (
     Topic(
         "typescript",
         "TypeScript",
-        ("typescript", "next.js", "nextjs", "nestjs"),
-        ("microsoft/TypeScript", "vercel/next.js", "nestjs/nest"),
+        ("typescript", "nestjs"),
+        ("microsoft/TypeScript", "nestjs/nest"),
     ),
     Topic(
         "golang",
@@ -198,6 +201,129 @@ TOPICS: tuple[Topic, ...] = (
         "Streaming",
         ("kafka", "flink", "pulsar", "redpanda", "nats-"),
         ("apache/kafka", "apache/flink", "apache/pulsar", "nats-io/nats-server"),
+    ),
+    # --- additional popular GitHub stacks (31–50) ---
+    Topic(
+        "nodejs",
+        "Node.js",
+        ("nodejs", "node.js", "/node-", "expressjs", "npm/cli"),
+        ("nodejs/node", "expressjs/express", "npm/cli"),
+    ),
+    Topic(
+        "angular",
+        "Angular",
+        ("angular", "ngx-", "angularjs"),
+        ("angular/angular", "angular/components"),
+    ),
+    Topic(
+        "svelte",
+        "Svelte",
+        ("svelte", "sveltekit"),
+        ("sveltejs/svelte", "sveltejs/kit"),
+    ),
+    Topic(
+        "nextjs",
+        "Next.js",
+        ("next.js", "nextjs", "vercel/next"),
+        ("vercel/next.js",),
+    ),
+    Topic(
+        "azure",
+        "Azure",
+        ("azure-", "azure/", "azurerm"),
+        ("Azure/azure-sdk-for-python", "Azure/azure-cli", "hashicorp/terraform-provider-azurerm"),
+    ),
+    Topic(
+        "gcp",
+        "Google Cloud",
+        ("google-cloud", "gcp-", "terraform-google"),
+        ("GoogleCloudPlatform/python-docs-samples", "hashicorp/terraform-provider-google"),
+    ),
+    Topic(
+        "linux",
+        "Linux",
+        ("linux", "kernel", "ubuntu", "debian"),
+        ("torvalds/linux", "systemd/systemd"),
+    ),
+    Topic(
+        "graphql",
+        "GraphQL",
+        ("graphql", "apollo", "hasura"),
+        ("graphql/graphql-js", "apollographql/apollo-server", "hasura/graphql-engine"),
+    ),
+    Topic(
+        "tensorflow",
+        "TensorFlow",
+        ("tensorflow", "keras"),
+        ("tensorflow/tensorflow", "keras-team/keras"),
+    ),
+    Topic(
+        "pytorch",
+        "PyTorch",
+        ("pytorch", "torchvision", "torchaudio"),
+        ("pytorch/pytorch", "pytorch/vision"),
+    ),
+    Topic(
+        "gamedev",
+        "Game Dev",
+        ("godot", "unity", "unreal", "bevy"),
+        ("godotengine/godot", "bevyengine/bevy"),
+    ),
+    Topic(
+        "electron",
+        "Electron",
+        ("electron", "electron-"),
+        ("electron/electron",),
+    ),
+    Topic(
+        "bun",
+        "Bun",
+        ("oven-sh/bun", "/bun", "bun.sh"),
+        ("oven-sh/bun",),
+    ),
+    Topic(
+        "deno",
+        "Deno",
+        ("deno", "denoland"),
+        ("denoland/deno",),
+    ),
+    Topic(
+        "haskell",
+        "Haskell",
+        ("haskell", "ghc", "cabal"),
+        ("ghc/ghc", "haskell/cabal"),
+    ),
+    Topic(
+        "rlang",
+        "R",
+        ("/r-", "rstudio", "tidyverse", "cran"),
+        ("rstudio/rstudio", "tidyverse/ggplot2", "r-lib/rlang"),
+    ),
+    Topic(
+        "julia",
+        "Julia",
+        ("/julia", "julialang"),
+        ("JuliaLang/julia",),
+    ),
+    Topic(
+        "elasticsearch",
+        "Elasticsearch",
+        ("elasticsearch", "opensearch", "elastic/"),
+        ("elastic/elasticsearch", "opensearch-project/OpenSearch"),
+    ),
+    Topic(
+        "nginx",
+        "Nginx",
+        # Seed-repo only: broad "nginx" scans overload the ClickHouse playground.
+        (),
+        ("nginx/nginx", "caddyserver/caddy", "openresty/openresty"),
+    ),
+    Topic(
+        "embedded",
+        "Embedded / IoT",
+        # Seed-repo only: "arduino"/"esp32" scans are too heavy on the playground.
+        (),
+        ("arduino/Arduino", "zephyrproject-rtos/zephyr", "espressif/esp-idf"),
     ),
 )
 

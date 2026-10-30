@@ -104,12 +104,21 @@ def fetch_topic_days(
     raise RuntimeError(f"ClickHouse backfill failed for {topic_slug}: {last_error}")
 
 
-def backfill(start: date, end: date, clickhouse_url: str) -> int:
+def backfill(
+    start: date,
+    end: date,
+    clickhouse_url: str,
+    *,
+    only: set[str] | None = None,
+) -> int:
     sync_topics()
+    selected = [topic for topic in TOPICS if only is None or topic.slug in only]
+    if only and not selected:
+        raise SystemExit(f"no matching topics for {sorted(only)}")
     total = 0
     failures: list[str] = []
-    for index, topic in enumerate(TOPICS, start=1):
-        print(f"[{index}/{len(TOPICS)}] fetching {topic.slug}…")
+    for index, topic in enumerate(selected, start=1):
+        print(f"[{index}/{len(selected)}] fetching {topic.slug}…")
         try:
             rows = fetch_topic_days(topic.slug, start, end, clickhouse_url)
             total += upsert_daily_facts(rows)
@@ -138,12 +147,19 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=180, help="How many days ending before yesterday")
     parser.add_argument("--start", type=str, default="")
     parser.add_argument("--end", type=str, default="")
+    parser.add_argument(
+        "--topics",
+        type=str,
+        default="",
+        help="Comma-separated topic slugs to backfill (default: all)",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
     end = date.fromisoformat(args.end) if args.end else resolve_end_date(_default_end(), settings.clickhouse_url)
     start = date.fromisoformat(args.start) if args.start else end - timedelta(days=args.days)
-    written = backfill(start, end, settings.clickhouse_url)
+    only = {part.strip() for part in args.topics.split(",") if part.strip()} or None
+    written = backfill(start, end, settings.clickhouse_url, only=only)
     print(f"wrote {written} fact rows")
 
 

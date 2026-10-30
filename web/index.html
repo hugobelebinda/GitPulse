@@ -124,7 +124,7 @@
   <header>
     <div>
       <div class="brand">GitPulse</div>
-      <div class="sub">30 engineering topics on public GitHub — rising ranks, next-day forecasts, and holdout actual vs predicted for the last test month.</div>
+      <div class="sub">50 popular GitHub stacks — rising ranks, next-day forecasts, and holdout actual vs predicted for the last test month.</div>
     </div>
     <div id="asof" class="sub"></div>
   </header>
@@ -150,6 +150,18 @@
         <canvas id="holdout" height="120"></canvas>
       </div>
       <div class="meta" id="meta"></div>
+      <div class="chart-block" id="glossary">
+        <h2>What the numbers mean</h2>
+        <p class="sub" style="max-width:none;margin:0">
+          We train on ~5 months of real daily stars, then hide the last ~30 days (<b>holdout</b>) and ask models to predict them.
+          <b>MAE</b> = mean absolute error in stars/day (lower is better).
+          <b>Naive / baseline</b> = “same as 7 days ago.”
+          <b>Model</b> = gradient boosting on recent lags/trends.
+          <b>Hybrid</b> = for each topic, keep whichever of model or naive was better on the holdout.
+          <b>Topic winner</b> = that choice for the selected topic.
+          <b>Global winner</b> = which approach wins overall across all topics.
+        </p>
+      </div>
     </section>
   </main>
   <script>

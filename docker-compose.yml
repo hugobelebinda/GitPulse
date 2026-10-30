@@ -78,6 +78,8 @@ services:
       - ./ds:/app/ds
       - ./data:/app/data
       - ./web:/app/web
+      - ./gitpulse:/app/gitpulse
+      - ./api:/app/api
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 10s

@@ -1,6 +1,6 @@
 # GitPulse
 
-Engineering-topic pulse on public GitHub. An ETL pipeline lands daily activity facts for **30 curated topics**, scikit-learn forecasts next-day stars against a seasonal baseline, and a FastAPI dashboard ranks rising topics and charts holdout actual vs predicted.
+Engineering-topic pulse on public GitHub. An ETL pipeline lands daily activity facts for **50 popular stacks**, scikit-learn forecasts next-day stars against a seasonal baseline, and a FastAPI dashboard ranks rising topics and charts holdout actual vs predicted.
 
 ## Stack
 
@@ -53,12 +53,13 @@ Tests:
 # or locally: PYTHONPATH=. pytest -q
 ```
 
-## Topics (30)
+## Topics (50)
 
-Languages & runtimes: Python, Rust, TypeScript, Go, Java, .NET/C#, C/C++, Ruby, PHP, Swift, Kotlin, Scala, Zig, Elixir  
-Platforms & infra: Kubernetes, Docker, AWS/Cloud, DevOps/CI, Observability, Streaming  
-App domains: React, Vue, WebAssembly, Mobile, Web3, Security, Databases  
-Data & AI: LLM/GenAI, Classical ML, Data Engineering  
+Languages & runtimes: Python, Rust, TypeScript, Go, Java, .NET/C#, C/C++, Ruby, PHP, Swift, Kotlin, Scala, Zig, Elixir, Node.js, Haskell, R, Julia, Bun, Deno  
+Frontend: React, Vue, Angular, Svelte, Next.js, WebAssembly, Electron  
+Platforms & infra: Kubernetes, Docker, AWS, Azure, GCP, Linux, Nginx, DevOps/CI, Observability, Streaming, Elasticsearch, Embedded/IoT  
+App domains: Mobile, Web3, Security, Databases, GraphQL, Game Dev  
+Data & AI: LLM/GenAI, Classical ML, Data Engineering, TensorFlow, PyTorch  
 
 Matching uses curated seed repos plus narrow repo-name keywords in `gitpulse/topics.py`.
 
