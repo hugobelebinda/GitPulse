@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitPulse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;650&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #171d25;
+      --ink: #e7eef7;
+      --muted: #8b9bb0;
+      --line: #2a3544;
+      --accent: #3d9cf0;
+      --good: #3ecf8e;
+      --warn: #e6b35a;
+      --pred: #c084fc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1a2a3d 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1b2430 0%, transparent 50%),
+        var(--bg);
+      font-family: "IBM Plex Sans", sans-serif;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 1rem;
+      padding: 1.5rem 1.75rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+    }
+    .sub { color: var(--muted); margin-top: 0.35rem; max-width: 42rem; line-height: 1.4; }
+    main {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 1rem;
+      padding: 1rem 1.75rem 2rem;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+    aside, section {
+      background: color-mix(in srgb, var(--panel) 92%, black);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .rising { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; }
+    .rising li {
+      display: grid;
+      grid-template-columns: 1.5rem 1fr auto;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.55rem 0.25rem;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .rising li:hover, .rising li.active { background: #1e2733; }
+    .rank { font-family: "IBM Plex Mono", monospace; color: var(--muted); }
+    .growth.pos { color: var(--good); }
+    .growth.neg { color: var(--warn); }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    select, button {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #121820;
+      color: var(--ink);
+      padding: 0.45rem 0.7rem;
+    }
+    button { cursor: pointer; border-color: #3a4d66; }
+    .chart-block { margin-top: 1rem; }
+    canvas { width: 100% !important; max-height: 300px; }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.75rem;
+    }
+    .stat b {
+      display: block;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1.1rem;
+      margin-top: 0.25rem;
+    }
+    .stat span { color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand">GitPulse</div>
+      <div class="sub">30 engineering topics on public GitHub — rising ranks, next-day forecasts, and holdout actual vs predicted for the last test month.</div>
+    </div>
+    <div id="asof" class="sub"></div>
+  </header>
+  <main>
+    <aside>
+      <h2>Rising topics</h2>
+      <ol class="rising" id="rising"></ol>
+    </aside>
+    <section>
+      <div class="toolbar">
+        <label>
+          Topic
+          <select id="topic"></select>
+        </label>
+        <button id="reload" type="button">Refresh</button>
+      </div>
+      <div class="chart-block">
+        <h2>Activity</h2>
+        <canvas id="chart" height="120"></canvas>
+      </div>
+      <div class="chart-block">
+        <h2>Holdout month — actual vs predicted</h2>
+        <canvas id="holdout" height="120"></canvas>
+      </div>
+      <div class="meta" id="meta"></div>
+    </section>
+  </main>
+  <script>
+    let chart;
+    let holdoutChart;
+    const topicSelect = document.getElementById("topic");
+    const risingList = document.getElementById("rising");
+    const meta = document.getElementById("meta");
+    const asof = document.getElementById("asof");
+
+    async function getJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function pct(value) {
+      if (value == null || Number.isNaN(value)) return "—";
+      const sign = value > 0 ? "+" : "";
+      return sign + (100 * value).toFixed(1) + "%";
+    }
+
+    function chartDefaults() {
+      return {
+        responsive: true,
+        plugins: { legend: { labels: { color: "#8b9bb0" } } },
+        scales: {
+          x: { ticks: { color: "#8b9bb0", maxTicksLimit: 8 }, grid: { color: "#2a3544" } },
+          y: { ticks: { color: "#8b9bb0" }, grid: { color: "#2a3544" } },
+        },
+      };
+    }
+
+    async function loadTopics() {
+      const topics = await getJson("/api/topics");
+      topicSelect.innerHTML = topics.map(t => `<option value="${t.slug}">${t.label}</option>`).join("");
+    }
+
+    async function loadRising() {
+      const data = await getJson("/api/rising");
+      asof.textContent = data.as_of ? `Ranks as of ${data.as_of}` : "Train a model to populate ranks";
+      risingList.innerHTML = (data.items || []).map(item => `
+        <li data-topic="${item.topic}">
+          <span class="rank">${item.rank}</span>
+          <span>${item.label}</span>
+          <span class="growth ${item.wow_growth >= 0 ? "pos" : "neg"}">${pct(item.wow_growth)}</span>
+        </li>`).join("") || "<li>No ranks yet</li>";
+      risingList.querySelectorAll("li[data-topic]").forEach(node => {
+        node.addEventListener("click", () => {
+          topicSelect.value = node.dataset.topic;
+          loadSeries();
+        });
+      });
+    }
+
+    async function loadHoldout(topic) {
+      let data = { points: [] };
+      try {
+        data = await getJson(`/api/predictions?topic=${encodeURIComponent(topic)}`);
+      } catch (_) {}
+      const labels = data.points.map(p => p.day);
+      if (holdoutChart) holdoutChart.destroy();
+      holdoutChart = new Chart(document.getElementById("holdout"), {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Actual", data: data.points.map(p => p.actual), borderColor: "#3d9cf0", tension: 0.2, pointRadius: 0 },
+            { label: "Model", data: data.points.map(p => p.model_pred), borderColor: "#c084fc", tension: 0.2, pointRadius: 0, borderDash: [4, 3] },
+            { label: "Naive", data: data.points.map(p => p.naive_pred), borderColor: "#e6b35a", tension: 0.2, pointRadius: 0, borderDash: [2, 2] },
+            { label: "Hybrid", data: data.points.map(p => p.hybrid_pred), borderColor: "#3ecf8e", tension: 0.2, pointRadius: 0 },
+          ],
+        },
+        options: chartDefaults(),
+      });
+      return data;
+    }
+
+    async function loadSeries() {
+      const topic = topicSelect.value;
+      const series = await getJson(`/api/series/${topic}?days=120`);
+      const labels = series.points.map(p => p.day);
+      const stars = series.points.map(p => p.stars);
+      const pushes = series.points.map(p => p.pushes);
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById("chart"), {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Stars", data: stars, borderColor: "#3d9cf0", tension: 0.2, pointRadius: 0 },
+            { label: "Pushes", data: pushes, borderColor: "#3ecf8e", tension: 0.2, pointRadius: 0 },
+          ],
+        },
+        options: chartDefaults(),
+      });
+
+      const holdout = await loadHoldout(topic);
+      const forecasts = await getJson("/api/forecasts");
+      const mine = forecasts.find(f => f.topic === topic);
+      let results = null;
+      try { results = await getJson("/api/results"); } catch (_) {}
+      const topicResult = results?.per_topic?.find(row => row.topic === topic);
+      meta.innerHTML = `
+        <div class="stat"><span>Latest stars</span><b>${stars.at(-1) ?? "—"}</b></div>
+        <div class="stat"><span>Next-day forecast</span><b>${mine ? mine.yhat.toFixed(1) : "—"}</b></div>
+        <div class="stat"><span>Holdout days</span><b>${holdout.points.length || "—"}</b></div>
+        <div class="stat"><span>Topic winner</span><b>${topicResult ? topicResult.winner : "—"}</b></div>
+        <div class="stat"><span>Global winner</span><b>${results ? results.winner : "—"}</b></div>
+        <div class="stat"><span>Hybrid MAE</span><b>${results?.hybrid ? results.hybrid.mae : (results ? results.model.mae : "—")}</b></div>
+        <div class="stat"><span>Model MAE</span><b>${results ? results.model.mae : "—"}</b></div>
+        <div class="stat"><span>Baseline MAE</span><b>${results ? results.baseline.mae : "—"}</b></div>
+      `;
+      risingList.querySelectorAll("li").forEach(li => {
+        li.classList.toggle("active", li.dataset.topic === topic);
+      });
+    }
+
+    document.getElementById("reload").addEventListener("click", () => {
+      loadRising();
+      loadSeries();
+    });
+    topicSelect.addEventListener("change", loadSeries);
+
+    (async () => {
+      await loadTopics();
+      await loadRising();
+      await loadSeries();
+    })().catch(err => {
+      meta.innerHTML = `<div class="stat"><span>Error</span><b>${err.message}</b></div>`;
+    });
+  </script>
+</body>
+</html>

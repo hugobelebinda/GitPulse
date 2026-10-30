@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  up)
+    docker compose up -d --build postgres minio minio-init api
+    ;;
+  down)
+    docker compose down
+    ;;
+  backfill)
+    docker compose run --rm worker python -m etl.clickhouse_backfill "$@"
+    ;;
+  ingest-day)
+    docker compose run --rm --no-deps worker python -m etl.gharchive_ingest "$@"
+    ;;
+  ingest-range)
+    docker compose run --rm --no-deps worker python -m etl.gharchive_ingest "$@"
+    ;;
+  train)
+    docker compose run --rm --no-deps worker python -m ds.train "$@"
+    ;;
+  schedule)
+    docker compose --profile schedule up -d --build scheduler
+    echo "Scheduler running (daily ClickHouse backfill + train)"
+    ;;
+  notebook)
+    docker compose --profile notebook up -d jupyter
+    echo "Jupyter Lab: http://localhost:8888"
+    ;;
+  test)
+    docker compose run --rm --no-deps -e PYTHONPATH=/app worker pytest -q "$@"
+    ;;
+  logs)
+    docker compose logs -f "$@"
+    ;;
+  status)
+    docker compose ps
+    ;;
+  *)
+    cat <<'EOF'
+GitPulse helper
+
+  ./scripts/pulse up              Start Postgres, MinIO, API
+  ./scripts/pulse backfill        ClickHouse → Postgres (default 180 days)
+  ./scripts/pulse backfill --days 90
+  ./scripts/pulse ingest-day      GH Archive one day → MinIO → Postgres
+  ./scripts/pulse ingest-range --start 2025-06-01 --end 2025-06-03 --hours 0-23
+  ./scripts/pulse train           Fit model, write ds/results.json
+  ./scripts/pulse schedule        Daily backfill + retrain loop
+  ./scripts/pulse test            Run pytest in the worker image
+  ./scripts/pulse notebook        Start Jupyter on :8888
+  ./scripts/pulse status|logs|down
+EOF
+    exit 1
+    ;;
+esac

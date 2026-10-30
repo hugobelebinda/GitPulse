@@ -1,1 +1,0 @@
-"""OmniDoc AI document worker."""

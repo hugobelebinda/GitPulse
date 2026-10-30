@@ -1,79 +1,91 @@
-# OmniDoc AI
+# GitPulse
 
-Enterprise intelligent document processing pipeline. Upload a PDF and the worker returns a summary plus the key facts from the document.
+Engineering-topic pulse on public GitHub. An ETL pipeline lands daily activity facts for **30 curated topics**, scikit-learn forecasts next-day stars against a seasonal baseline, and a FastAPI dashboard ranks rising topics and charts holdout actual vs predicted.
 
-The MinIO service uses the Chainguard MinIO image. Upstream `minio/minio` and `quay.io/minio/minio` are no longer anonymously pullable; the API, console, and `MINIO_*` settings are unchanged.
+## Stack
 
-## Start
+- **FastAPI** dashboard and JSON API
+- **Postgres** warehouse (`daily_facts`, `forecasts`, `rising_scores`)
+- **MinIO** raw lake for GH Archive hours
+- **Polars/Pandas + NumPy + scikit-learn + matplotlib**
+- **Jupyter Lab** for exploration
+- **Docker Compose** (+ optional daily scheduler profile)
+- **pytest + ruff** via GitHub Actions CI
 
-```bash
-./omnidoc run
-```
+RabbitMQ is not required. Jobs are `docker compose run` one-shots, or the `schedule` profile for a daily refresh loop.
 
-This creates `.env` from `.env.example` when it is missing, then builds and starts MongoDB, MinIO, RabbitMQ, the ingestion service, and the Python worker. The first build downloads Maven dependencies, PyTorch, and the named-entity model.
-
-`./omnidoc status` shows the stack. `./omnidoc logs` follows logs. `./omnidoc stop` stops it and keeps the data volumes.
-
-## Verify
-
-```bash
-docker compose ps
-```
-
-MongoDB, MinIO, RabbitMQ, and the ingestion service should be healthy. `minio-init` should have exited with code 0. The worker should be running.
-
-- MinIO console: http://localhost:9001 — sign in with `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env`. The bucket `omnidoc-documents` should exist.
-- RabbitMQ management: http://localhost:15672 — sign in with `RABBITMQ_DEFAULT_USER` / `RABBITMQ_DEFAULT_PASS` from `.env`. The queue `document-processing-queue` should exist.
-- MongoDB listens on `localhost:27017`. Use `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD` from `.env`, authentication database `admin`.
-
-Open http://localhost:8080, choose a PDF in the system file window, and the page shows the summary and key facts when processing finishes.
-
-The same upload is available from the command line:
+## Quick start
 
 ```bash
-curl -sS -F "file=@invoice.pdf;type=application/pdf" http://localhost:8080/api/documents/upload
-curl -sS http://localhost:8080/api/documents/{documentId}
+cp -n .env.example .env
+chmod +x scripts/pulse scripts/scheduler.sh
+./scripts/pulse up
+./scripts/pulse backfill --days 180
+./scripts/pulse train
 ```
 
-The upload returns `202 Accepted`. After processing, `GET /api/documents/{id}` includes `summary` and `keyInformation`, and the status is `COMPLETED`.
+Open http://localhost:8000
 
-Inside Compose, the apps use the service hostnames `mongodb`, `minio`, and `rabbitmq`. Host ports stay on localhost.
-
-## Ingestion service
-
-To run the API on the host instead of in Compose, stop the `ingestion-service` container first so port 8080 is free. From `ingestion-service`:
+Optional lake ingest (multi-day, resumes existing MinIO objects). Partial-hour runs stay in MinIO only unless you pass `--promote-facts`; full `0-23` days promote to Postgres automatically:
 
 ```bash
-./mvnw spring-boot:run
+./scripts/pulse ingest-range --start 2025-06-01 --end 2025-06-03 --hours 12-13
+./scripts/pulse ingest-range --start 2025-06-01 --end 2025-06-01 --hours 0-23
 ```
 
-Upload a PDF:
+Daily refresh loop:
 
 ```bash
-curl -sS -F "file=@invoice.pdf;type=application/pdf" http://localhost:8080/api/documents/upload
+./scripts/pulse schedule
 ```
 
-The response is `202 Accepted` with `status` `PENDING`. Fetch the same record with `GET /api/documents/{documentId}`. Health: http://localhost:8080/actuator/health
-
-## Python worker
-
-Compose runs the worker with Tesseract installed in the image. To run it on the host instead, stop the `worker` container, install Tesseract (`sudo apt install tesseract-ocr tesseract-ocr-eng`), and from `worker`:
+Notebook:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m omnidoc_worker
+./scripts/pulse notebook
+# http://localhost:8888
 ```
 
-The worker reads `.env` from the repository root. It downloads each uploaded PDF from MinIO, reads text with PyMuPDF, and OCRs pages that have almost no text. Pandas normalizes the lines. A free local instruct model (`SUMMARY_MODEL`, default Qwen2.5 7B Instruct) writes a summary and a list of key facts. Pydantic validates that result, and the worker stores `summary` and `keyInformation` on the MongoDB document with status `COMPLETED`. The page at http://localhost:8080 lists recent documents and can export the summary as a text file. The Docker image downloads the model at build time.
-
-`python -m omnidoc_worker --once` processes the messages already in the queue and exits.
-
-## Stop
+Tests:
 
 ```bash
-./omnidoc stop
+./scripts/pulse test
+# or locally: PYTHONPATH=. pytest -q
 ```
 
-`docker compose down -v` also removes the named volumes.
+## Topics (30)
+
+Languages & runtimes: Python, Rust, TypeScript, Go, Java, .NET/C#, C/C++, Ruby, PHP, Swift, Kotlin, Scala, Zig, Elixir  
+Platforms & infra: Kubernetes, Docker, AWS/Cloud, DevOps/CI, Observability, Streaming  
+App domains: React, Vue, WebAssembly, Mobile, Web3, Security, Databases  
+Data & AI: LLM/GenAI, Classical ML, Data Engineering  
+
+Matching uses curated seed repos plus narrow repo-name keywords in `gitpulse/topics.py`.
+
+## What the numbers mean
+
+- **Facts:** per topic, per UTC day — stars, pushes, PRs, issues.
+- **Rising:** week-over-week growth of the 7-day star average.
+- **Split:** ~6 months of facts → first ~5 months train, last 30 days test. Predictions are scored against real held-out stars.
+- **Model:** `GradientBoostingRegressor` on `log1p(stars)` with lag/rolling features; high-volume topics get dedicated models; a **hybrid** selector keeps model or seasonal naive per topic based on holdout MAE.
+- Artifacts: `ds/results.json`, `data/test_predictions.csv`, `data/models/stars_gbr.joblib`.
+
+Protocol: `gitpulse/protocol.json`.
+
+## API
+
+- `GET /api/health`
+- `GET /api/topics`
+- `GET /api/series/{topic}`
+- `GET /api/rising`
+- `GET /api/forecasts`
+- `GET /api/results`
+- `GET /api/predictions?topic=python`
+- `GET /api/etl/runs`
+
+## Data sources
+
+1. **ClickHouse playground** `github_events` — fast historical backfill (no giant download). End date auto-clamps to playground max.
+2. **GH Archive** hourly `.json.gz` — lake path into MinIO with skip-existing resume, then aggregate.
+
+Keep lake windows bounded; a full year of raw GH Archive is tens of GB.

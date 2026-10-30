@@ -1,0 +1,1 @@
+"""GitPulse shared library."""

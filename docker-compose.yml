@@ -1,225 +1,178 @@
-name: omnidoc
-
-# Upstream minio/minio and quay.io/minio images are no longer anonymously pullable.
-# This stack uses the Chainguard MinIO build, which still speaks the MinIO/S3 API.
-x-minio-image: &minio-image cgr.dev/chainguard/minio:latest@sha256:2136d593beacf4461187035eca949fe49abd589d5079735025c711ca58fee0c8
+name: gitpulse
 
 services:
-  mongodb:
-    image: mongo:7
-    container_name: omnidoc-mongodb
-    restart: unless-stopped
-    ports:
-      - "${MONGO_PORT}:27017"
+  postgres:
+    image: postgres:16-alpine
+    container_name: gitpulse-postgres
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
-      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+      POSTGRES_DB: gitpulse
+      POSTGRES_USER: gitpulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gitpulse_dev_password}
+    ports:
+      - "5432:5432"
     volumes:
-      - mongo_data:/data/db
-    networks:
-      - omnidoc
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mongosh",
-          "--quiet",
-          "--username",
-          "${MONGO_INITDB_ROOT_USERNAME}",
-          "--password",
-          "${MONGO_INITDB_ROOT_PASSWORD}",
-          "--authenticationDatabase",
-          "admin",
-          "--eval",
-          "db.adminCommand('ping').ok",
-        ]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U gitpulse -d gitpulse"]
+      interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 20s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  minio-perms:
-    image: *minio-image
-    container_name: omnidoc-minio-perms
-    user: "0:0"
-    restart: "no"
-    entrypoint: ["/bin/sh", "-c", "chown -R 65532:65532 /data"]
-    volumes:
-      - minio_data:/data
-    networks:
-      - omnidoc
+      retries: 20
 
   minio:
-    image: *minio-image
-    container_name: omnidoc-minio
-    restart: unless-stopped
-    depends_on:
-      minio-perms:
-        condition: service_completed_successfully
+    image: cgr.dev/chainguard/minio:latest
+    container_name: gitpulse-minio
     command: server /data --console-address ":9001"
-    ports:
-      - "${MINIO_API_PORT}:9000"
-      - "${MINIO_CONSOLE_PORT}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gitpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gitpulse_dev_password}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio_data:/data
-    networks:
-      - omnidoc
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 15s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      retries: 12
+      start_period: 10s
 
   minio-init:
-    image: *minio-image
-    container_name: omnidoc-minio-init
+    build: .
+    image: gitpulse:0.1.0
+    container_name: gitpulse-minio-init
     depends_on:
       minio:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -eu
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        mc mb --ignore-existing "local/$$MINIO_BUCKET"
-        mc anonymous set none "local/$$MINIO_BUCKET"
-    networks:
-      - omnidoc
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gitpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gitpulse_dev_password}
+      MINIO_BUCKET: gitpulse-raw
+      MINIO_SECURE: "false"
+    entrypoint: ["python", "-c", "from etl.minio_client import ensure_bucket; print(ensure_bucket())"]
     restart: "no"
 
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: omnidoc-rabbitmq
-    restart: unless-stopped
-    ports:
-      - "${RABBITMQ_PORT}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
-    networks:
-      - omnidoc
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  ingestion-service:
-    build:
-      context: ./ingestion-service
-    image: omnidoc-ingestion:0.1.0
-    container_name: omnidoc-ingestion
-    restart: unless-stopped
+  api:
+    build: .
+    image: gitpulse:0.1.0
+    container_name: gitpulse-api
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
-      rabbitmq:
+      minio:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-    ports:
-      - "${SERVER_PORT}:8080"
     environment:
-      SERVER_PORT: "8080"
-      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/${MONGO_INITDB_DATABASE}?authSource=admin
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
-      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE}
-    networks:
-      - omnidoc
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      DATABASE_URL: postgresql+psycopg://gitpulse:${POSTGRES_PASSWORD:-gitpulse_dev_password}@postgres:5432/gitpulse
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gitpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gitpulse_dev_password}
+      MINIO_BUCKET: gitpulse-raw
+      MINIO_SECURE: "false"
+      GITPULSE_DATA_DIR: /app/data
+      GITPULSE_RESULTS_PATH: /app/ds/results.json
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ds:/app/ds
+      - ./data:/app/data
+      - ./web:/app/web
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
   worker:
-    build:
-      context: ./worker
-    image: omnidoc-worker:0.1.0
-    container_name: omnidoc-worker
-    restart: unless-stopped
+    image: gitpulse:0.1.0
+    container_name: gitpulse-worker
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
-      rabbitmq:
+      minio:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-      ingestion-service:
+      api:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://gitpulse:${POSTGRES_PASSWORD:-gitpulse_dev_password}@postgres:5432/gitpulse
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gitpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gitpulse_dev_password}
+      MINIO_BUCKET: gitpulse-raw
+      MINIO_SECURE: "false"
+      GITPULSE_DATA_DIR: /app/data
+      GITPULSE_RESULTS_PATH: /app/ds/results.json
+    volumes:
+      - ./ds:/app/ds
+      - ./data:/app/data
+      - ./etl:/app/etl
+      - ./gitpulse:/app/gitpulse
+      - ./tests:/app/tests
+    profiles: ["jobs"]
+    command: ["python", "-m", "etl.clickhouse_backfill", "--days", "180"]
+
+  jupyter:
+    image: gitpulse:0.1.0
+    container_name: gitpulse-jupyter
+    depends_on:
+      postgres:
         condition: service_healthy
     environment:
-      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/${MONGO_INITDB_DATABASE}?authSource=admin
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
-      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
-      TESSERACT_LANG: ${TESSERACT_LANG}
-      OCR_MIN_PAGE_CHARS: ${OCR_MIN_PAGE_CHARS}
-      WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES}
-      LOG_LEVEL: ${LOG_LEVEL}
-      SUMMARY_MODEL: ${SUMMARY_MODEL:-bartowski/Qwen2.5-7B-Instruct-GGUF}
-      SUMMARY_MODEL_FILE: ${SUMMARY_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
-      NER_DEVICE: cpu
-      PYTHONUNBUFFERED: "1"
-      HF_HOME: /opt/huggingface
-    networks:
-      - omnidoc
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      DATABASE_URL: postgresql+psycopg://gitpulse:${POSTGRES_PASSWORD:-gitpulse_dev_password}@postgres:5432/gitpulse
+      GITPULSE_DATA_DIR: /app/data
+      GITPULSE_RESULTS_PATH: /app/ds/results.json
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./ds:/app/ds
+      - ./data:/app/data
+      - ./gitpulse:/app/gitpulse
+      - ./etl:/app/etl
+    profiles: ["notebook"]
+    command:
+      [
+        "jupyter",
+        "lab",
+        "--ip=0.0.0.0",
+        "--port=8888",
+        "--no-browser",
+        "--allow-root",
+        "--NotebookApp.token=",
+        "--NotebookApp.password=",
+      ]
 
-networks:
-  omnidoc:
-    name: omnidoc
+  scheduler:
+    image: gitpulse:0.1.0
+    container_name: gitpulse-scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://gitpulse:${POSTGRES_PASSWORD:-gitpulse_dev_password}@postgres:5432/gitpulse
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gitpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gitpulse_dev_password}
+      MINIO_BUCKET: gitpulse-raw
+      MINIO_SECURE: "false"
+      GITPULSE_DATA_DIR: /app/data
+      GITPULSE_RESULTS_PATH: /app/ds/results.json
+      GITPULSE_REFRESH_INTERVAL_SECONDS: ${GITPULSE_REFRESH_INTERVAL_SECONDS:-86400}
+      GITPULSE_BACKFILL_DAYS: ${GITPULSE_BACKFILL_DAYS:-14}
+      GITPULSE_HOLDOUT_DAYS: ${GITPULSE_HOLDOUT_DAYS:-30}
+    volumes:
+      - ./ds:/app/ds
+      - ./data:/app/data
+      - ./etl:/app/etl
+      - ./gitpulse:/app/gitpulse
+      - ./scripts:/app/scripts
+    profiles: ["schedule"]
+    entrypoint: ["/bin/bash", "/app/scripts/scheduler.sh"]
+    restart: unless-stopped
 
 volumes:
-  mongo_data:
+  postgres_data:
   minio_data:
-  rabbitmq_data:
